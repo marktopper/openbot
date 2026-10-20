@@ -17,6 +17,7 @@ import {
   readAgentToolSchema,
   updateProfileToolSchema,
 } from "./agent/profile-tools";
+import { REMOTE_AGENT_TOOL_DEFINITIONS } from "./agent/remote-agent-tools";
 import { ROUTINE_NO_UPDATE_TOOL } from "./agent/routine-quiet-runs";
 import { captureScreenToolShape } from "./agent/screen-capture";
 import {
@@ -221,6 +222,7 @@ export const OPENBOT_TOOL_DEFINITIONS: readonly OpenBotToolDefinition[] = [
   ...DATA_TOOL_DEFINITIONS,
   ...LOCAL_SKILL_TOOL_DEFINITIONS,
   ...ROUTINE_FLOW_TOOL_DEFINITIONS,
+  ...REMOTE_AGENT_TOOL_DEFINITIONS,
   {
     name: "list_sites",
     description:

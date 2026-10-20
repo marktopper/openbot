@@ -80,6 +80,7 @@ import {
   updateProfileToolSchema,
 } from "./profile-tools";
 import { browserUserControlResult } from "./prompts";
+import { handleRemoteAgentTool, REMOTE_AGENT_TOOL_NAMES, type RemoteAgentTools } from "./remote-agent-tools";
 import { ROUTINE_NO_UPDATE_TOOL } from "./routine-quiet-runs";
 import type { RoutineScheduler } from "./routine-scheduler";
 import { type OpenBotToolResponse, openBotToolFailure, openBotToolResult } from "./routine-tools";
@@ -155,6 +156,8 @@ export interface OpenBotToolRouterOptions {
   sidebarLayout: AgentSidebar | null;
   localSkillTools?: (() => LocalSkillTools) | undefined;
   routineFlowTools?: (() => RoutineFlowTools) | undefined;
+  /** The servers this computer joined; null until main connects them. */
+  remoteAgentTools?: (() => RemoteAgentTools | null) | undefined;
   approvalAutomation?: ApprovalAutomationPolicy | undefined;
   /** Draws pages for `html_preview`; null where no window can draw one. */
   visualPreview?: ChatVisualPreviewHost | null | undefined;
@@ -192,6 +195,7 @@ export class OpenBotToolRouter {
   readonly #sidebarLayout: AgentSidebar | null;
   readonly #localSkillTools: (() => LocalSkillTools) | undefined;
   readonly #routineFlowTools: (() => RoutineFlowTools) | undefined;
+  readonly #remoteAgentTools: (() => RemoteAgentTools | null) | undefined;
   readonly #approvalAutomation: ApprovalAutomationPolicy;
   readonly #visualPreview: ChatVisualPreviewHost | null;
   readonly #screenCapture: ScreenCaptureHost | null;
@@ -224,6 +228,7 @@ export class OpenBotToolRouter {
     this.#sidebarLayout = options.sidebarLayout;
     this.#localSkillTools = options.localSkillTools;
     this.#routineFlowTools = options.routineFlowTools;
+    this.#remoteAgentTools = options.remoteAgentTools;
     this.#approvalAutomation = options.approvalAutomation ?? NO_APPROVAL_AUTOMATION;
     this.#visualPreview = options.visualPreview ?? null;
     this.#screenCapture = options.screenCapture ?? null;
@@ -394,6 +399,11 @@ export class OpenBotToolRouter {
             }
             if (toolRequest.params.tool === "capture_screen" || toolRequest.params.tool === "list_capture_sources") {
               const result = yield* this.#screenCaptureTool(client, toolRequest, toolRequest.params);
+              if (!toolRequest.signal?.aborted && client.running) client.respond(toolRequest.id, result);
+              return;
+            }
+            if (REMOTE_AGENT_TOOL_NAMES.has(toolRequest.params.tool)) {
+              const result = yield* this.#remoteAgentTool(client, toolRequest, toolRequest.params);
               if (!toolRequest.signal?.aborted && client.running) client.respond(toolRequest.id, result);
               return;
             }
@@ -997,6 +1007,51 @@ export class OpenBotToolRouter {
     const image = yield* Effect.result(host.capture(capture));
     if (Result.isFailure(image)) return captureFailure(image.failure);
     return yield* this.#showCapture(agent.id, threadId, params, messageId, image.success);
+  });
+
+  /**
+   * A tool for an agent on a joined server. A send leaves this computer as the signed-in user, so
+   * it waits for the user's approval like a screen capture; Full access answers for the user.
+   */
+  readonly #remoteAgentTool = Effect.fn("OpenBotToolRouter.remoteAgentTool")(function* (
+    this: OpenBotToolRouter,
+    client: AgentClient,
+    request: AppServerRequest,
+    params: DynamicToolCallParams,
+  ) {
+    const agentId = this.#conversation.agentForThread(params.threadId);
+    const agent = agentId ? this.#hooks.listAgents().find((candidate) => candidate.id === agentId) : undefined;
+    if (!agent) return openBotToolFailure(sourceText("error.agent.toolRequestInvalid"));
+    const threadId = this.#conversation.publicThreadId(agent.id, params.threadId);
+    return yield* handleRemoteAgentTool(this.#remoteAgentTools?.() ?? null, {
+      tool: params.tool,
+      arguments: params.arguments,
+      sender: { agentId: agent.id, name: agent.name },
+      call: { threadId: params.threadId, turnId: params.turnId, callId: params.callId },
+      approveSend: (send) =>
+        this.#attention
+          .awaitToolApproval(client, request, {
+            requestId: request.id,
+            agentId: agent.id,
+            threadId,
+            turnId: params.turnId,
+            kind: "permissions",
+            command: null,
+            cwd: null,
+            reason: sourceText("status.agent.remoteMessageApproval", {
+              agent: send.agentName,
+              server: send.serverName,
+              text: send.text,
+            }),
+            grantRoot: null,
+            permissions: null,
+          })
+          .pipe(
+            Effect.map((decision) => decision === "accept"),
+            // The card could not be shown, so nothing was allowed.
+            Effect.catch(() => Effect.succeed(false)),
+          ),
+    });
   });
 
   /** What the approval card says. A window that is gone is a result the agent can correct. */

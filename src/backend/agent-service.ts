@@ -164,6 +164,7 @@ import type { ProviderAccountStore } from "./agent/provider-account-store";
 import { isPlanLimitDiagnostic } from "./agent/provider-diagnostics";
 import { type AgentClientFactory, ProviderRuntime, toProviderOperationFailed } from "./agent/provider-runtime";
 import { QueueControls } from "./agent/queue-controls";
+import type { RemoteAgentTools } from "./agent/remote-agent-tools";
 import { quietRoutineRun } from "./agent/routine-quiet-runs";
 import { type RoutineMutationOptions, RoutineScheduler, toRoutineOperationFailed } from "./agent/routine-scheduler";
 import { buildRuntimeSnapshot } from "./agent/runtime-snapshot";
@@ -273,6 +274,8 @@ export interface AgentServiceOptions {
   localSkillTools?: (() => LocalSkillTools) | undefined;
   /** Built after the service, so read when a tool call needs it. */
   routineFlowTools?: () => RoutineFlowTools;
+  /** The servers this computer joined. Built after the service, so read when a tool call needs it. */
+  remoteAgentTools?: () => RemoteAgentTools | null;
   /**
    * Whose approvals are answered without asking. The main process owns the preference, because it
    * is a property of this computer and never crosses the Team API. Omitted, every approval asks.
@@ -1219,6 +1222,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       ...(this.#localSkillTools === undefined ? {} : { localSkillTools: this.#localSkillTools }),
       ...(this.#routineFlowTools === undefined ? {} : { routineFlowTools: this.#routineFlowTools }),
       ...(options.approvalAutomation === undefined ? {} : { approvalAutomation: options.approvalAutomation }),
+      ...(options.remoteAgentTools === undefined ? {} : { remoteAgentTools: options.remoteAgentTools }),
       ...(options.visualPreview === undefined ? {} : { visualPreview: options.visualPreview }),
       ...(options.screenCapture === undefined ? {} : { screenCapture: options.screenCapture }),
       hooks: {

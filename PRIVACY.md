@@ -575,6 +575,13 @@ another device, the host sends the provider's sign-in link, and for Codex, Grok 
 one-time code, to that computer or browser, which shows them and opens the link only when the admin
 asks. The provider's CLI on the host receives the login; no token travels to the admin.
 
+An agent on a computer that joined a server the user owns can send a text message to an agent on
+that server, and read the answer, with `send_remote_message` and `read_remote_reply`. The message
+travels over the same encrypted team connection, as the signed-in user, and the user approves each
+one unless the sending agent has Full access. OpenBot removes known secret patterns from the text
+before it is sent, and from the answer before the sending agent reads it. The message and the answer
+are stored on the host, in the receiving agent's conversation, like a message the user sends there.
+
 ## Other network connections
 
 Network traffic can also occur when:

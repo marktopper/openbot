@@ -4,6 +4,7 @@ import { fileReportStorage } from "@openbot/telemetry/node";
 import { Effect, Fiber } from "effect";
 import { toAgentRemovalFailed } from "../backend/agent/agent-removal";
 import { toHostedSiteOperationFailed } from "../backend/agent/hosted-site-coordinator";
+import type { RemoteAgentTools } from "../backend/agent/remote-agent-tools";
 import { AgentDatabaseSupervisor } from "../backend/agent-data/agent-database-supervisor";
 import { AgentTables } from "../backend/agent-data/agent-tables";
 import { AgentRoutineStore } from "../backend/agent-routine-store";
@@ -210,6 +211,7 @@ import { ProviderRuntimeManager, providerRuntimeRoot, runtimeTarget } from "./pr
 import { ProviderUseSettingsStore } from "./provider-use-settings-store";
 import { RelayedMessagingInstalls } from "./relayed-messaging-installs";
 import { decodeQueuedMessageReceipt } from "./remote-agent-decoding";
+import { remoteAgentTools } from "./remote-agent-tools";
 import { RemoteConnectTrace } from "./remote-connect-trace";
 import { RemoteDesktopManager } from "./remote-desktop-manager";
 import { resolveRemoteDesktopRuntime } from "./remote-desktop-runtime-artifact";
@@ -1377,6 +1379,8 @@ export async function createApplicationServices({
   const providerTempDirectory = join(app.getPath("userData"), "provider-temp");
   performance.mark("openbot:services.computer-use");
   if (process.platform === "win32") await Effect.runPromise(sweepProviderTemp(providerTempDirectory));
+  // The server manager starts after the agent service, so an agent tool reads the tools at its call.
+  let joinedServerTools: RemoteAgentTools | null = null;
   const service: AgentService = new AgentService({
     store,
     mailbox,
@@ -1462,6 +1466,7 @@ export async function createApplicationServices({
     passwordVault: passwordVaultRouter(onePasswordConnector, bitwardenConnector),
     localSkillTools: () => localSkillTools(skills),
     routineFlowTools: () => routineFlowRuntime,
+    remoteAgentTools: () => joinedServerTools,
     approvalAutomation,
     busyMessageMode: () => busyMessageMode.get().mode,
     agentMemoryLimit: () => agentMemoryLimit.get().limit,
@@ -2221,6 +2226,7 @@ export async function createApplicationServices({
       }),
     },
   );
+  joinedServerTools = remoteAgentTools(remoteServers);
   // A server joined or revoked on another device of this account. Signal carries it to every socket
   // the account holds, so the phone's join reaches this computer in the second it happens rather
   // than at the next account check. The refresh itself belongs to the entry point, which owns the
