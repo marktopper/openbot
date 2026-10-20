@@ -6,12 +6,14 @@ import {
   type RemoteAgentTools,
   type RemoteSendApproval,
   type RemoteServerView,
+  senderLine,
 } from "./remote-agent-tools";
 
 // The send path to another server: what leaves this computer, and what comes back into the model.
 
 const OWNED: RemoteServerView = { id: "server-1", name: "DragonHeart", state: "online", role: "owner" };
 const SECRET = "sk-ant-abcdefgh1234";
+const SENDER = { agentId: "agent-e", name: "E" };
 
 function fakeTools(options: { deliveries?: QueueDelivery[]; messages?: ConversationMessage[] } = {}) {
   const sent: string[] = [];
@@ -43,7 +45,7 @@ async function run(tools: RemoteAgentTools, tool: string, args: unknown, allow =
     handleRemoteAgentTool(tools, {
       tool,
       arguments: args,
-      sender: { agentId: "agent-e", name: "E" },
+      sender: SENDER,
       call: { threadId: "thread-1", turnId: "turn-1", callId: "call-1" },
       approveSend: (send) => {
         asked.push(send);
@@ -76,7 +78,7 @@ describe("remote agent send path", () => {
           messageId: "sent-1",
           recipientAgentId: "master",
           sender: { kind: "user" },
-          text: "",
+          text: `${senderLine(SENDER)}\n\nDeploy it.`,
           attachments: [],
           replyToMessageId: null,
           status: "failed",

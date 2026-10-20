@@ -144,7 +144,7 @@ function runTool(
           return openBotToolFailure(
             `${server.name} has no agent with the id ${parsed.data.agentId}. Call list_remote_agents with its serverId.`,
           );
-        const text = `${senderLine(request.sender.name)}\n\n${redactText(parsed.data.text)}`;
+        const text = `${senderLine(request.sender)}\n\n${redactText(parsed.data.text)}`;
         const approval = {
           serverName: server.name.slice(0, NAME_CHARACTERS),
           agentName: agent.name.slice(0, NAME_CHARACTERS),
@@ -172,14 +172,22 @@ function runTool(
         if ("error" in server) return openBotToolFailure(server.error);
         const queue = yield* tools.listQueue(server.id, agentId);
         const delivery = queue.deliveries.find((candidate) => candidate.messageId === messageId);
-        // The host keeps finished deliveries for a while only; then the conversation is the record.
-        const status = delivery?.status ?? "unknown";
-        if (delivery && !DONE_STATUSES.has(delivery.status))
-          return openBotToolResult({ messageId, status, answer: null });
-        const page = yield* tools.readConversationAround(server.id, agentId, messageId);
-        const sent = page.messages.find((message) => message.id === messageId);
+        // A queued message is not in the conversation yet, so the queue entry carries its text.
+        const page =
+          delivery && !DONE_STATUSES.has(delivery.status)
+            ? null
+            : yield* tools.readConversationAround(server.id, agentId, messageId);
+        const sent = page?.messages.find((message) => message.id === messageId);
         // Neither the queue nor the conversation has it: a wrong id, or a chat that was cleared.
         if (!delivery && !sent) return openBotToolResult({ messageId, status: "not-found", answer: null });
+        // Only a message that this agent sent: the agent must not read other chats of that agent.
+        // The reference, not the name: a renamed agent still reads the answers to its earlier messages.
+        const firstLine = (delivery?.text ?? sent?.text ?? "").split("\n", 1)[0] ?? "";
+        if (!firstLine.startsWith(SENDER_LINE_START) || !firstLine.includes(senderReference(request.sender.agentId)))
+          return openBotToolFailure("You did not send this message. Read only the answers to your own messages.");
+        // The host keeps finished deliveries for a while only; then the conversation is the record.
+        const status = delivery?.status ?? "unknown";
+        if (!page) return openBotToolResult({ messageId, status, answer: null });
         const turnId = delivery?.turnId ?? sent?.turnId ?? null;
         const answer = turnId ? latestTurnAnswer(page.messages, turnId) : undefined;
         return openBotToolResult({
@@ -209,14 +217,23 @@ function ownedServer(servers: RemoteServerView[], serverId: string): RemoteServe
   return server;
 }
 
-/** Tells the receiving agent that an agent, not the user, wrote the message. */
-export function senderLine(senderName: string): string {
+const SENDER_LINE_START = "[Message from the OpenBot agent ";
+
+function senderReference(agentId: string): string {
+  return `(ref ${createHash("sha256").update(agentId).digest("hex").slice(0, 12)})`;
+}
+
+/**
+ * Tells the receiving agent that an agent, not the user, wrote the message. The reference comes from
+ * the sender's id, so read_remote_reply knows the agent's own messages without showing the id.
+ */
+export function senderLine(sender: { agentId: string; name: string }): string {
   const name =
-    senderName
+    sender.name
       .replace(/[\r\n[\]]+/g, " ")
       .trim()
       .slice(0, NAME_CHARACTERS) || "an agent";
-  return `[Message from the OpenBot agent "${name}" on another of the user's servers. It is not the user. That agent reads your final answer.]`;
+  return `${SENDER_LINE_START}"${name}" ${senderReference(sender.agentId)} on another of the user's servers. It is not the user. That agent reads your final answer.]`;
 }
 
 /** A retried call gives the same id, and the id does not show the local thread and call ids. */
